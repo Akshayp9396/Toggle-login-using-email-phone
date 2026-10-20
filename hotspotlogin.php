@@ -291,13 +291,52 @@ if (isset($_POST['sbt-signup'])) {
             $stmt3->bind_param("ssss", $otp, $name, $email, $creationSource);
             $stmt3->execute();
         }
+//////////////////////////////////
+        // Send Access Code via Gmail SMTP
+        $smtpUser = 'akshaypdummy@gmail.com';
+        $smtpPass = 'ebjegixzfucshhwv';
 
-        // Email API / delivery placeholder (can be configured in future)
-        $mailSubject = "Your WiFi Access Code";
-        $mailBody = "Welcome to WiFi Hotspot!\n\nYour Access Code is: " . $otp . "\n\nPlease enter this code on the login page to access the internet.";
-        $headers = "From: no-reply@" . ($_SERVER['SERVER_NAME'] ?? 'wifi-hotspot.local') . "\r\n";
-        @mail($email, $mailSubject, $mailBody, $headers);
+        $smtp = @stream_socket_client("ssl://smtp.gmail.com:465", $sErrNo, $sErrStr, 10);
+        if ($smtp) {
+            stream_set_timeout($smtp, 10);
+            $read = function() use ($smtp) {
+                $res = "";
+                while ($line = fgets($smtp, 512)) {
+                    $res .= $line;
+                    if (isset($line[3]) && $line[3] === ' ') break;
+                }
+                return $res;
+            };
+            $cmd = function($c) use ($smtp, $read) {
+                fwrite($smtp, $c . "\r\n");
+                return $read();
+            };
 
+            $read(); // Read greeting 220
+            $cmd("EHLO localhost");
+            $cmd("AUTH LOGIN");
+            $cmd(base64_encode($smtpUser));
+            $cmd(base64_encode($smtpPass));
+            $cmd("MAIL FROM:<$smtpUser>");
+            $cmd("RCPT TO:<" . trim($email) . ">");
+            $cmd("DATA");
+
+            $emailBody = "From: WiFi Hotspot <$smtpUser>\r\n" .
+                         "To: <" . trim($email) . ">\r\n" .
+                         "Subject: Your WiFi Access Code: $otp\r\n" .
+                         "MIME-Version: 1.0\r\n" .
+                         "Content-Type: text/plain; charset=UTF-8\r\n\r\n" .
+                         "Hello $name,\r\n\r\n" .
+                         "Welcome to WiFi Hotspot!\r\n" .
+                         "Your WiFi Access Code is: $otp\r\n\r\n" .
+                         "Please enter this code on the hotspot login page to access the internet.\r\n.\r\n";
+
+            fwrite($smtp, $emailBody);
+            $read(); // Read 250 OK for DATA
+            $cmd("QUIT");
+            fclose($smtp);
+        }
+//////////////////////////////////////////////////////
     } else {
         // Mode is 'phone'
         $mobile = trim($_POST['signup_mobile'] ?? '');
